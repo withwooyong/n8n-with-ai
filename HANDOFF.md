@@ -1,133 +1,114 @@
 # Session Handoff
 
-> Last updated: 2026-04-21 (KST, Session 2 종료)
-> Repository: git repo (main)
-> Latest artifact: `workflow-ver1.json` (n8n workflow ID `5CmV0koXuemjbEmB`, active, v2 via REST PUT)
+> Last updated: 2026-04-21 18:46 (KST, Session 2 최종 정리)
+> Branch: `main` (tracking `origin/main`)
+> Remote: `https://github.com/withwooyong/n8n-with-ai` (public)
+> Latest commit: `0deabb0` — README.md, ADR.md 추가
 
 ## Current Status
 
-SOP.md 기반 "고객 문의 자동 응대 시스템" 전 플로우 **End-to-End 검증 완료**. AI provider 는 **OpenAI gpt-4o-mini** (Responses API). 테스트 자동화를 위한 **헬퍼 n8n 워크플로우** 와 bash 스크립트 추가. 현재 `active: true` 로 운영 가능 상태.
+SOP 기반 **"고객 문의 자동 응대 시스템"** 전 기능 구현 + End-to-End 검증 + 공개 저장소 게시까지 완료.
+- n8n 워크플로우: `5CmV0koXuemjbEmB` (메인) + `91O4quTAcVPxwkJy` (헬퍼) 모두 `active=true`
+- AI provider: **OpenAI gpt-4o-mini** (Responses API)
+- Docker 컨테이너는 이번 세션 마지막에 **내림** (`docker compose down`) — volumes 보존됨, `docker compose up -d` 로 언제든 복원
+- 저장소: GitHub 에 public 으로 push 완료
 
-## Workflow Registry (n8n instance)
+## Completed This Session (Session 2 전체)
 
-| 워크플로우 이름 | ID | 목적 | 상태 |
-|---|---|---|---|
-| 고객 문의 자동 응대 시스템 | `5CmV0koXuemjbEmB` | 메인 워크플로우 (12 노드) | ✅ Active |
-| 테스트 문의 추가 헬퍼 | `91O4quTAcVPxwkJy` | 테스트용 행 추가 (2 노드) | ✅ Active |
+| # | 작업 | Commit | 비고 |
+|---|------|--------|------|
+| 1 | AI provider Gemini → OpenAI 교체 | `d23f8a4` | 3 노드 타입/operation/응답 경로 변경 |
+| 2 | OpenAI credential 등록 (`x0qPkWeqdiwXaKLL`) | (n8n 내부) | `openAiApi`, 이름 `OpenAI account` |
+| 3 | 응답 경로 수정 `$json.mergedResponse` → `$json.output[0].content[0].text` | `d23f8a4` | Responses API 스펙 |
+| 4 | Alert Error Slack 표현식 현실화 | `d23f8a4` | `$json.error` 문자열 fallback 체인 |
+| 5 | Parse Classification 다중 아이템 처리 | `d23f8a4` | `$input.all().map(...)` |
+| 6 | 입력 컬럼명 통일 (`접수일시`/`이메일`/`문의내용`) | `d23f8a4` | SOP + workflow 양방 동기화 |
+| 7 | Retry 정책 상향 (wait 2000 → 5000ms) | `d23f8a4` | SOP §5.1 현실화 |
+| 8 | `scripts/add-test.sh` + 헬퍼 워크플로우 생성 | `d23f8a4` | 4 프리셋 + custom |
+| 9 | SOP/CHANGELOG/HANDOFF/.env.example 업데이트 | `d23f8a4` | v1.3 까지 변경 이력 |
+| 10 | End-to-End 검증 (자동발송 2건 + 수동검토 2건) | — | executions #19, #22, #25, #27 모두 success |
+| 11 | README.md, ADR.md 신규 작성 | `0deabb0` | 프로젝트 개요 + 결정 기록 10건 |
+| 12 | GitHub public repo 생성 + push | `b57a774`~`0deabb0` | `https://github.com/withwooyong/n8n-with-ai` |
+| 13 | Slack placeholder 보안 이슈 해결 | `git filter-branch` | history 재작성 후 재푸시 |
+| 14 | `.claude/settings.local.json` 생성 | untracked | `includeCoAuthoredBy: true` |
+| 15 | Docker 컨테이너 종료 | — | volume 보존, 재기동 가능 |
 
-## Completed This Session (Session 2)
+## In Progress / Pending
 
-| # | 작업 | Artifact |
-|---|------|----------|
-| 1 | AI provider Gemini → OpenAI 교체 (3 노드 타입 변경, operation `response`, responses API) | workflow v2 |
-| 2 | OpenAI credential 등록 (`x0qPkWeqdiwXaKLL` / `openAiApi`) | n8n credential |
-| 3 | 응답 경로 수정 `$json.mergedResponse` → `$json.output[0].content[0].text` | — |
-| 4 | Alert Error Slack 메시지 포맷 현실화 (문자열 error 필드 대응) | workflow |
-| 5 | Parse Classification Code 다중 아이템 처리 (`$input.all().map(...)`) | workflow |
-| 6 | 입력 컬럼명 통일 (`접수일시`/`이메일`/`문의내용`) — SOP + workflow 양방 동기화 | SOP.md v1.1 |
-| 7 | Retry 정책 상향 (`waitBetweenTries: 2000` → `5000`) | workflow |
-| 8 | `scripts/add-test.sh` + 헬퍼 워크플로우 생성 | scripts/, `91O4quTAcVPxwkJy` |
-| 9 | SOP.md / CHANGELOG.md / HANDOFF.md / .env.example 업데이트 | docs |
-| 10 | End-to-End 검증 (단순문의 2건 + 확인필요 2건 성공) | executions #19, #22, #25, #27 |
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 1 | 에러 경로(`#error-alert`) 강제 테스트 | pending | Gemini 시절 자연 발생 503 으로 간접 검증됨. 재확인 시 `Classify Inquiry` 모델명을 `gpt-invalid-model` 로 일시 변경 → 원복 |
+| 2 | Google Forms 실제 연결 | pending | 현재는 헬퍼 스크립트/수동 append. Forms 응답 시트를 `고객문의_폼` 으로 지정 필요 (+ `타임스탬프` 컬럼명 rename) |
+| 3 | Switch fallback(3번째 포트) 정책 결정 | pending | 현재 미연결. 프롬프트가 `단순문의/확인필요` 만 강제하므로 실질 문제 없음 |
+| 4 | validator warning 11건 해소 | pending | false positive + best practice 제안. 실동작 영향 없음 |
+| 5 | `.claude/settings.local.json` 커밋 여부 결정 | uncommitted | 공유 원하면 그대로 커밋, 개인용이면 `.gitignore` 에 추가 |
 
-## Credential Registry (n8n instance)
+## Key Decisions Made
 
-| 이름 | Type | ID | 연결 노드 | 상태 |
-|---|---|---|---|---|
-| **OpenAI account** | `openAiApi` | `x0qPkWeqdiwXaKLL` | Classify Inquiry, Generate Auto Reply, Generate Draft Reply | ✅ 현재 운영용 |
-| Gemini API | `googlePalmApi` | `1SWjnYZD2osYmWCX` | (미연결) | ⚠️ 참조용 보존 |
-| Slack Bot | `slackApi` | `nWkbliwEwa2orN2y` | Notify Customer Support, Alert Error Slack | ✅ |
-| Google Sheets Trigger OAuth2 | `googleSheetsTriggerOAuth2Api` | `9O9wo8ubfWm2tcSf` | On New Inquiry Row | ✅ |
-| Google Sheets OAuth2 | `googleSheetsOAuth2Api` | `wrbTh75DInsom76L` | Log Auto Sent, Log Manual Review, 헬퍼 Append Test Row | ✅ |
-| Gmail OAuth2 | `gmailOAuth2` | `WDbXULY6iGZrmty6` | Send Customer Email, Create Gmail Draft | ✅ |
+상세는 `ADR.md` 참조. 핵심 요약:
 
-## End-to-End Verified Scenarios
-
-| 플로우 | Execution | 고객 | 결과 |
-|---|---|---|---|
-| 단순문의 → 자동발송 | #22 | 김철수 (배송문의) | Gmail SENT + 로그시트 자동발송 행 |
-| 단순문의 → 자동발송 | #27 | 박민수 (제품문의) | Gmail SENT + 로그시트 자동발송 행 |
-| 확인필요 → 수동검토 | #19 | 정하나 (환불요청) | Gmail Draft + `#customer-support` Slack + 로그시트 수동확인 행 |
-| 확인필요 → 수동검토 | #25 | 정하나 (환불요청, 재현성 확인) | 동일 |
-| 에러 경로 → #error-alert | Gemini 503 상황 (이전 세션) | — | #error-alert 메시지 도착 + 포맷 2회 교정 완료 |
-
-## How To Use (운영 관점)
-
-### 테스트 행 추가 (개발 중)
-```bash
-./scripts/add-test.sh simple      # 김철수 배송 문의
-./scripts/add-test.sh product     # 박민수 제품 스펙
-./scripts/add-test.sh manual      # 이수진 교환 요청
-./scripts/add-test.sh refund      # 정하나 환불 요청
-./scripts/add-test.sh custom "홍길동" "a@b.com" "문의 텍스트"
-```
-
-### 실제 운영
-- Google Forms → Sheet `고객문의_폼` 연결 (Forms 응답이 자동 append)
-- n8n Sheet Trigger 가 1분마다 폴링 → 자동 처리
-- 담당자는 Gmail 초안 검토 + Slack 알림 확인
-
-## Key Decisions / Gotchas
-
-### AI Provider 선택
-- **Gemini 무료 등급 포기 이유**: 분당 15 RPM 초과 시 429, 일일 200 RPD 한도. 동시에 503 Service Unavailable 도 자주 발생 (유료 대비 우선순위 낮음)
-- **OpenAI gpt-4o-mini 선택 이유**: 저렴 ($0.15/1M input, $0.60/1M output), Responses API 지원, Rate limit 관대 (유료 티어는 사실상 무제한)
-- 월 비용 예상: 본 워크플로우 사용량 기준 **< $1**
-
-### OpenAI Responses API vs Chat Completions
-- 사용 operation: `response` (Responses API, n8n typeVersion 2.1)
-- 응답 경로: `$json.output[0].content[0].text` (simplify=true 옵션과 무관하게 이 경로)
-- messages 대신 `responses.values[]` + 각 값에 `type: "text"` 필드 필요
-
-### Sheets Trigger 동작 특성
-- 1분 폴링 (`pollTimes.mode: everyMinute`)
-- `staticData.lastIndexChecked` 로 row index 추적
-- **1초 이내 연속 append 시 일부 누락 가능** — 헬퍼 스크립트 빠른 연속 호출 시만 발생. 운영에서는 Forms 제출 속도라 무관
-
-### Slack OAuth Scope 재설치
-- scope 추가만으로는 기존 토큰에 반영 안 됨
-- "Reinstall to Workspace" 로 **새 토큰 발급** 필수 → n8n credential 업데이트
-
-### Alert Error Slack 표현식
-- `$json.error` 는 **문자열** 이지 객체 아님 — `.node.name`, `.message` 접근 금지
-- 안전한 fallback 체인 필수
-
-### Auto-sanitization 이슈
-- `n8n_update_partial_workflow` 의 `updateNode` 호출 시 다른 노드 필드(columns.value 등)가 strip 되는 경우 발생 경험
-- 최종 해결: REST API `PUT /api/v1/workflows/{id}` 로 전체 치환하는 방식이 가장 안정적 (이번 세션에서 4회 사용)
+- **ADR-001** SOP = Single Source of Truth (변경 전파 방향: SOP → workflow.json → n8n 인스턴스)
+- **ADR-003** Gemini → OpenAI 교체 (무료 등급 503/429 빈발 → 유료 gpt-4o-mini 월 $1 미만)
+- **ADR-004** Retry 5s × 3회 표준 (503 대부분 커버, 429 쿼터 낭비 최소화)
+- **ADR-006** Alert Error Slack 표현식은 `$json.error` 문자열 전제 (fallback 체인)
+- **ADR-010** 큰 폭 변경은 REST PUT 전체 치환 (auto-sanitization 부작용 회피)
 
 ## Known Issues (Not Blocking)
 
-1. **Validator warning 11건** — 모두 이전부터 있던 false positive 또는 best practice 제안 (onError 추가 등). 실동작 영향 없음
-2. **Switch fallback 3번째 포트 미연결** — `기타` 복잡도 케이스가 나올 때 처리 경로 없음. 현 프롬프트에서는 `단순문의/확인필요` 만 반환하도록 강제하므로 실질 문제 없음
-3. **`Parse Classification` Code 노드 `Invalid $ usage detected` warning** — `$input.all()` 사용 시 validator 가 잘못 플래그. 실동작 정상
+1. **Sheets Trigger race** — 1초 이내 연속 row append 시 일부 누락 가능. 실제 Forms 제출 속도에서는 무관
+2. **Validator warning 11건** — 대부분 false positive 또는 best practice 제안. 실동작 정상
+3. **`Invalid $ usage detected` (Parse Classification)** — `$input.all()` 을 validator 가 오탐. 실동작 정상
+4. **Switch fallback 3번째 포트 미연결** — 현 프롬프트에서 도달 불가하므로 실질 영향 없음
 
 ## Context for Next Session
 
-### 이어서 가능한 작업
-1. **에러 경로 강제 테스트** — `Classify Inquiry` 모델명을 일시 `gpt-invalid-model` 로 변경 → #error-alert 동작 재확인
-2. **Google Forms 실제 연결** — `고객문의_폼` 시트를 Forms 응답 시트로 설정 (현재는 수동/헬퍼 append)
-3. **Switch fallback 연결** — 기타 복잡도 케이스를 `확인필요` 와 합치거나 별도 경로로
-4. **운영 품질 개선** — Code 노드 onError 추가, Sheets 노드 onError 추가, valueInputMode 명시 등 validator 제안 반영
-5. **비용 모니터링 대시보드** — OpenAI 사용량 주간 리포트 자동화
+### 사용자의 원래 의도 + 현재 상태
+SOP.md 기반 워크플로우를 n8n 에 **즉시 운영 가능한 수준** 으로 구축 + 공개 저장소로 게시. 본 세션에서 이 목표는 달성됨.
 
-### 바로 할 수 없는 것 (외부 작업 필요)
-- Google Cloud Console 에서 프로덕션용 OAuth 승인 (현재는 테스트 모드)
-- Slack App Marketplace 등재 (Bot Token Scopes 안정화 필요 시)
+### 결정된 주요 방향
+- AI provider: **OpenAI `gpt-4o-mini`** (Responses API). Gemini 대체
+- 테스트 자동화: **헬퍼 n8n 워크플로우 + bash 스크립트** (외부 언어 의존 없음)
+- 문서 정책: SOP = SSoT, 변경 시 ADR 작성, 세션 단위 CHANGELOG / HANDOFF
 
-## Files Modified This Session
+### 제약/사용자 선호
+- 커밋 메시지 한글 (글로벌 CLAUDE.md)
+- `git push` 는 명시 요청 시만 (글로벌 CLAUDE.md)
+- `.env`, `.mcp.json` 커밋 금지 (프로젝트 CLAUDE.md)
+- 노드 이름은 **영어** (프로젝트 CLAUDE.md)
+- AI/외부 API 노드는 **Retry On Fail + On Error 분기** 필수 (프로젝트 CLAUDE.md)
 
-| 파일 | 변경 유형 |
-|---|---|
-| `workflow-ver1.json` | 여러 차례 수정 (Gemini → OpenAI 전환, 응답 경로, retry 정책, Parse Classification 코드, Alert 표현식, 컬럼명 통일) |
-| `SOP.md` | §3.2/§3.4/§3.5/§5.1/§5.2/§6/§7/§8 업데이트 |
-| `CHANGELOG.md` | Session 2 섹션 추가 |
-| `HANDOFF.md` | 전면 재작성 (현재 파일) |
-| `.env.example` | `OPENAI_API_KEY` 추가, Slack scope 재설치 주의, curl 스니펫 교체 |
-| `scripts/add-test.sh` | 신규 생성 |
+### 다음 세션에서 바로 할 수 있는 것
+1. Docker 컨테이너 재기동: `docker compose up -d` → 워크플로우 자동 Active
+2. 에러 경로 강제 테스트 (위 Pending #1)
+3. Google Forms 연결 (위 Pending #2)
+4. validator warning 정리 (위 Pending #4)
+
+### 바로 할 수 없는 것
+- Google Cloud OAuth consent screen 프로덕션 승인 (Google 심사 과정)
+- Slack App Marketplace 공개 (n8n 로컬 전용이라 불필요)
+
+## Files Modified This Session (git diff vs 세션 시작 전)
+
+| 파일 | 변경 유형 | 커밋 |
+|---|---|---|
+| `workflow-ver1.json` | 대규모 수정 (전환 + path + retry + 다중아이템 + 컬럼명) | `d23f8a4` |
+| `SOP.md` | §3/§5/§6/§7/§8 현행화 | `d23f8a4` |
+| `CHANGELOG.md` | Session 2 섹션 추가 (본 /handoff 로 보완) | `d23f8a4`, (현재) |
+| `HANDOFF.md` | 전면 재작성 (본 파일) | `d23f8a4`, (현재) |
+| `.env.example` | `OPENAI_API_KEY` 추가, Slack placeholder 형식 변경 | `d23f8a4`, history rewrite |
+| `scripts/add-test.sh` | 신규 | `d23f8a4` |
+| `README.md` | 신규 | `0deabb0` |
+| `ADR.md` | 신규 | `0deabb0` |
+| `.claude/settings.local.json` | 신규 (`includeCoAuthoredBy: true`) | **uncommitted** |
 
 ## Security Notes
 
-- `.env` 에 실제 API 키 6종 저장 (N8N, Gemini, OpenAI, Google OAuth Client, Slack Bot, OPENAI_API_KEY). `.gitignore` 로 추적 제외됨
-- n8n credential store 에 동일 값 저장됨 (Docker volume `n8n_data`)
-- 대화 중 API 키가 system-reminder 로 1회 노출됐음 (Slack, OpenAI) — 우려 시 재발급 권장
+- `.env` 에 실제 API 키 6종 저장 (N8N API / OpenAI / Gemini / Google OAuth Client / Slack Bot). `.gitignore` 로 추적 제외
+- n8n credential store 는 Docker named volume `n8n_data` 에 암호화 저장됨 (`docker compose down` 으로 컨테이너 제거해도 보존)
+- 대화 중 API 키가 system-reminder 로 1회 노출됨 (Slack Bot, OpenAI API Key) — 우려 시 재발급 권장
+- GitHub push 시 Slack 토큰 placeholder 오탐 → history rewrite 로 해결. **실키 노출 없음**
+
+## Uncommitted Work
+
+- `.claude/settings.local.json` (untracked) — `includeCoAuthoredBy: true`
+  - 커밋 여부 결정 필요 (팀 공유 / 개인용)

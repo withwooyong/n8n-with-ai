@@ -19,13 +19,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/).
 
 ---
 
-## [2026-04-21 afternoon] Session 2 — OpenAI 마이그레이션 + 헬퍼 워크플로우
+## [2026-04-21 afternoon] Session 2 — OpenAI 마이그레이션 + 헬퍼 워크플로우 + GitHub 게시
 
 ### Added
 - **헬퍼 n8n 워크플로우** "테스트 문의 추가 헬퍼" (ID: `91O4quTAcVPxwkJy`, active=true) — Webhook 트리거(POST `/webhook/test-inquiry`) → Google Sheets Append. Main workflow 의 Sheets 트리거를 자연스럽게 발동시키는 테스트 보조
 - **`scripts/add-test.sh`** — 프리셋 4종(simple/product/manual/refund) + custom 모드. 한 줄로 테스트 문의 생성 → E2E 검증 속도 개선
 - **OpenAI credential** 등록 (`x0qPkWeqdiwXaKLL`, `openAiApi` 타입, 이름 `OpenAI account`) — 기존 Gemini API credential 은 참조용으로 보존
 - `scripts/` 디렉터리 신규
+- **`README.md`** 신규 — 프로젝트 개요, 파일 구조, prerequisites, 빠른 시작 6단계, 워크플로우 흐름 다이어그램, 테스트 헬퍼 사용법, 문서 인덱스 (commit `0deabb0`)
+- **`ADR.md`** 신규 — 10건의 주요 기술 결정 기록 (MADR 간소화, SOP SSoT / AI provider / retry 정책 / 에러 처리 / 컬럼명 통일 / 테스트 헬퍼 / 다중 아이템 처리 / REST PUT 전략 등) (commit `0deabb0`)
+- **GitHub public repo 게시** — `https://github.com/withwooyong/n8n-with-ai` (main 브랜치 tracking origin)
+- `.claude/settings.local.json` — `includeCoAuthoredBy: true` 설정 (Claude Code 커밋 작성자 태그 활성화)
 
 ### Changed
 - **AI Provider: Google Gemini → OpenAI** — 3개 노드 (Classify Inquiry / Generate Auto Reply / Generate Draft Reply) 전부 교체
@@ -55,6 +59,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/).
 
 ### Removed
 - Gemini 기반 `mergedResponse` 표현식 (모든 expression 교체됨)
+
+### Security
+- **Slack 토큰 placeholder 재작성** — `.env.example` 의 Slack 토큰 자리값이 **Slack 토큰 형식 정규식** 과 일치해 GitHub secret scanner 가 실토큰으로 오탐. 형식과 무관한 문자열(`xoxb-REPLACE-WITH-YOUR-BOT-USER-OAUTH-TOKEN`)로 교체 + `git filter-branch` 로 **3개 전 커밋 history 소급 재작성** 후 푸시 성공. 실제 비밀값은 `.env` (gitignore) 에만 존재, 노출 사고 아님
 
 ---
 
