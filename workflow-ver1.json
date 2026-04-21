@@ -1,0 +1,434 @@
+{
+  "name": "고객 문의 자동 응대 시스템",
+  "nodes": [
+    {
+      "id": "trigger-new-inquiry",
+      "name": "On New Inquiry Row",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "고객문의_폼"
+        },
+        "event": "rowAdded",
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "classify-inquiry",
+      "name": "Classify Inquiry",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [480, 400],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-2.5-flash",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=고객명: {{ $json[\"고객명\"] }}\n이메일: {{ $json[\"이메일 주소\"] }}\n문의 내용:\n---\n{{ $json[\"문의 내용\"] }}\n---\n\n위 문의를 분류해주세요."
+            }
+          ]
+        },
+        "options": {
+          "systemMessage": "당신은 고객 문의를 분류하는 전문 어시스턴트입니다.\n다음 기준에 따라 문의를 분석하고, 반드시 JSON 형식으로만 응답하세요.\n\n[카테고리]\n- 제품문의: 제품 사양, 사용법, 재고 등에 대한 질문\n- 배송문의: 배송 상태, 예정일, 주소 변경 등\n- 환불요청: 환불, 교환, 취소에 대한 요청\n- 기타: 위 카테고리에 해당하지 않는 문의\n\n[복잡도]\n- 단순문의: 답변이 정형화되어 있고, 개인정보 확인이나 정책 판단이 불필요한 문의\n- 확인필요: 개인 주문 정보 확인이 필요하거나, 환불/교환처럼 정책 판단이 필요하거나, 감정적 컴플레인이 포함된 문의\n\n[출력 형식]\n{\n  \"category\": \"제품문의 | 배송문의 | 환불요청 | 기타\",\n  \"complexity\": \"단순문의 | 확인필요\",\n  \"reason\": \"판단 근거 한 줄 요약\"\n}\n\n코드블록이나 설명 없이 순수 JSON 객체만 출력하세요.",
+          "includeMergedResponse": true
+        }
+      }
+    },
+    {
+      "id": "parse-classification",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 400],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const triggerItem = $('On New Inquiry Row').item.json;\nconst g = $input.first().json;\n\nlet raw = '';\nif (typeof g.content === 'string') raw = g.content;\nelse if (typeof g.text === 'string') raw = g.text;\nelse if (g.response?.candidates?.[0]?.content?.parts?.[0]?.text) raw = g.response.candidates[0].content.parts[0].text;\nelse if (g.candidates?.[0]?.content?.parts?.[0]?.text) raw = g.candidates[0].content.parts[0].text;\nelse if (g.content?.parts?.[0]?.text) raw = g.content.parts[0].text;\n\nraw = String(raw).trim()\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```$/, '')\n  .trim();\n\nlet parsed = { category: '기타', complexity: '확인필요', reason: 'JSON 파싱 실패 — 안전 기본값' };\ntry { parsed = JSON.parse(raw); } catch (e) {}\n\nreturn [{\n  json: {\n    category: parsed.category,\n    complexity: parsed.complexity,\n    reason: parsed.reason,\n    customerName: triggerItem['고객명'],\n    customerEmail: triggerItem['이메일 주소'],\n    inquiry: triggerItem['문의 내용'],\n    timestamp: triggerItem['타임스탬프']\n  }\n}];"
+      }
+    },
+    {
+      "id": "route-by-complexity",
+      "name": "Route by Complexity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [960, 400],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "rule-simple",
+                    "leftValue": "={{ $json.complexity }}",
+                    "rightValue": "단순문의",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "simple"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "rule-manual",
+                    "leftValue": "={{ $json.complexity }}",
+                    "rightValue": "확인필요",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "manual"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "fallback"
+        }
+      }
+    },
+    {
+      "id": "generate-auto-reply",
+      "name": "Generate Auto Reply",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [1200, 240],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-2.5-flash",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=카테고리: {{ $json.category }}\n고객명: {{ $json.customerName }}\n문의 내용:\n{{ $json.inquiry }}\n\n위 내용에 대한 답변 이메일 본문을 작성해주세요."
+            }
+          ]
+        },
+        "options": {
+          "systemMessage": "당신은 고객 응대 전문가입니다.\n다음 원칙에 따라 고객 문의에 대한 이메일 답변을 한국어로 작성하세요.\n\n- 정중하고 친근한 톤\n- 핵심 답변을 먼저 제시하고 근거는 뒤에 간략히\n- 인사말, 본문, 맺음말 구조로 작성\n- 200~400자 이내\n- 개인정보(주문번호, 금액 등) 임의 생성 금지\n- 추가 확인이 필요한 경우 \"문의 주시면 재확인 후 안내드리겠습니다\" 라고 안내\n\n이메일 본문만 HTML 단락(<p>) 태그로 감싸 출력하세요. 제목이나 서두 설명은 포함하지 마세요.",
+          "includeMergedResponse": true
+        }
+      }
+    },
+    {
+      "id": "send-customer-email",
+      "name": "Send Customer Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [1440, 240],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Parse Classification').item.json.customerEmail }}",
+        "subject": "=[고객센터] {{ $('Parse Classification').item.json.category }} 문의에 대한 답변",
+        "emailType": "html",
+        "message": "={{ $json.content }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "log-auto-sent",
+      "name": "Log Auto Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1680, 240],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "고객문의_로그"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "접수일시": "={{ $('Parse Classification').item.json.timestamp }}",
+            "고객명": "={{ $('Parse Classification').item.json.customerName }}",
+            "이메일": "={{ $('Parse Classification').item.json.customerEmail }}",
+            "문의내용": "={{ $('Parse Classification').item.json.inquiry }}",
+            "카테고리": "={{ $('Parse Classification').item.json.category }}",
+            "복잡도": "={{ $('Parse Classification').item.json.complexity }}",
+            "처리방식": "자동발송"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "접수일시", "displayName": "접수일시", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "고객명", "displayName": "고객명", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "이메일", "displayName": "이메일", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "문의내용", "displayName": "문의내용", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "카테고리", "displayName": "카테고리", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "복잡도", "displayName": "복잡도", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "처리방식", "displayName": "처리방식", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "generate-draft-reply",
+      "name": "Generate Draft Reply",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [1200, 560],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-2.5-flash",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=카테고리: {{ $json.category }}\n고객명: {{ $json.customerName }}\n문의 내용:\n{{ $json.inquiry }}\n\n위 내용에 대한 답변 이메일 본문을 작성해주세요. (담당자가 검토 후 수정/발송 예정)"
+            }
+          ]
+        },
+        "options": {
+          "systemMessage": "당신은 고객 응대 전문가입니다.\n다음 원칙에 따라 고객 문의에 대한 이메일 답변 초안을 한국어로 작성하세요.\n\n- 정중하고 친근한 톤\n- 핵심 답변을 먼저 제시하고 근거는 뒤에 간략히\n- 인사말, 본문, 맺음말 구조로 작성\n- 200~400자 이내\n- 개인정보(주문번호, 금액 등) 임의 생성 금지\n- 추가 확인이 필요한 경우 \"문의 주시면 재확인 후 안내드리겠습니다\" 라고 안내\n\n이메일 본문만 HTML 단락(<p>) 태그로 감싸 출력하세요. 제목이나 서두 설명은 포함하지 마세요.",
+          "includeMergedResponse": true
+        }
+      }
+    },
+    {
+      "id": "create-gmail-draft",
+      "name": "Create Gmail Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [1440, 560],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "=[검토 필요] {{ $('Parse Classification').item.json.category }} - {{ $('Parse Classification').item.json.customerName }}",
+        "emailType": "html",
+        "message": "={{ $json.content }}",
+        "options": {
+          "sendTo": "={{ $('Parse Classification').item.json.customerEmail }}",
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "notify-customer-support",
+      "name": "Notify Customer Support",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [1680, 560],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#customer-support"
+        },
+        "text": "=:bell: *새 문의가 도착했습니다. 확인 후 발송해주세요.*\n\n• *고객명*: {{ $('Parse Classification').item.json.customerName }}\n• *이메일*: {{ $('Parse Classification').item.json.customerEmail }}\n• *카테고리*: {{ $('Parse Classification').item.json.category }}\n• *판단 근거*: {{ $('Parse Classification').item.json.reason }}\n\n*문의 내용*\n>>> {{ $('Parse Classification').item.json.inquiry }}\n\n*AI 답변 초안*\n```{{ $('Generate Draft Reply').item.json.content }}```\n\n:pencil: Gmail 초안 열기: https://mail.google.com/mail/u/0/#drafts/{{ $json.id }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      }
+    },
+    {
+      "id": "log-manual-review",
+      "name": "Log Manual Review",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1920, 560],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "고객문의_로그"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "접수일시": "={{ $('Parse Classification').item.json.timestamp }}",
+            "고객명": "={{ $('Parse Classification').item.json.customerName }}",
+            "이메일": "={{ $('Parse Classification').item.json.customerEmail }}",
+            "문의내용": "={{ $('Parse Classification').item.json.inquiry }}",
+            "카테고리": "={{ $('Parse Classification').item.json.category }}",
+            "복잡도": "={{ $('Parse Classification').item.json.complexity }}",
+            "처리방식": "수동확인"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "접수일시", "displayName": "접수일시", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "고객명", "displayName": "고객명", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "이메일", "displayName": "이메일", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "문의내용", "displayName": "문의내용", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "카테고리", "displayName": "카테고리", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "복잡도", "displayName": "복잡도", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "처리방식", "displayName": "처리방식", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "alert-error-slack",
+      "name": "Alert Error Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [720, 720],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#error-alert"
+        },
+        "text": "=:rotating_light: *고객 문의 워크플로우 실패*\n\n• *실패 노드*: {{ $json.error && $json.error.node ? $json.error.node.name : 'unknown' }}\n• *에러 메시지*: {{ ($json.error && $json.error.message) || $json.message || '내용 없음' }}\n• *고객명*: {{ $('On New Inquiry Row').item.json['고객명'] }}\n• *이메일*: {{ $('On New Inquiry Row').item.json['이메일 주소'] }}\n• *문의내용*: {{ $('On New Inquiry Row').item.json['문의 내용'] }}\n• *Execution URL*: {{ $execution.resumeUrl || $execution.url }}\n\n담당자 수동 확인이 필요합니다.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On New Inquiry Row": {
+      "main": [[{ "node": "Classify Inquiry", "type": "main", "index": 0 }]]
+    },
+    "Classify Inquiry": {
+      "main": [
+        [{ "node": "Parse Classification", "type": "main", "index": 0 }],
+        [{ "node": "Alert Error Slack", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Classification": {
+      "main": [[{ "node": "Route by Complexity", "type": "main", "index": 0 }]]
+    },
+    "Route by Complexity": {
+      "main": [
+        [{ "node": "Generate Auto Reply", "type": "main", "index": 0 }],
+        [{ "node": "Generate Draft Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Auto Reply": {
+      "main": [
+        [{ "node": "Send Customer Email", "type": "main", "index": 0 }],
+        [{ "node": "Alert Error Slack", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Customer Email": {
+      "main": [[{ "node": "Log Auto Sent", "type": "main", "index": 0 }]]
+    },
+    "Generate Draft Reply": {
+      "main": [
+        [{ "node": "Create Gmail Draft", "type": "main", "index": 0 }],
+        [{ "node": "Alert Error Slack", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Gmail Draft": {
+      "main": [[{ "node": "Notify Customer Support", "type": "main", "index": 0 }]]
+    },
+    "Notify Customer Support": {
+      "main": [[{ "node": "Log Manual Review", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Seoul",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}
