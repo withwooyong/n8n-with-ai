@@ -41,10 +41,12 @@
 
 | 컬럼명 | 타입 | 예시 |
 |--------|------|------|
-| `타임스탬프` | DateTime | `2026-04-21 10:32:15` |
+| `접수일시` | DateTime | `2026-04-21 10:32:15` |
 | `고객명` | String | `홍길동` |
-| `이메일 주소` | Email | `hong@example.com` |
-| `문의 내용` | Text | `주문한 제품이 아직 도착하지 않았습니다.` |
+| `이메일` | Email | `hong@example.com` |
+| `문의내용` | Text | `주문한 제품이 아직 도착하지 않았습니다.` |
+
+> 컬럼명은 `고객문의_로그` 시트와 통일되어 있어 n8n 내부 매핑 불필요. Google Forms 연동 시 Forms 측 응답 컬럼명을 이 이름으로 rename 한다.
 
 ---
 
@@ -74,9 +76,10 @@
 
 ### 3.2 Step 1 — 문의 내용 AI 분석
 
-**노드**: Google Gemini (Chat Model)
-**모델**: `gemini-2.5-flash`
-**Response Format**: JSON (structured output)
+**노드**: OpenAI (`resource: "text"`, `operation: "response"` — Responses API)
+**모델**: `gpt-4o-mini`
+**Response Format**: JSON (프롬프트로 형식 강제)
+**Simplify Output**: `true`
 
 #### 3.2.1 시스템 프롬프트
 
@@ -106,10 +109,10 @@
 
 ```
 고객명: {{ $json["고객명"] }}
-이메일: {{ $json["이메일 주소"] }}
+이메일: {{ $json["이메일"] }}
 문의 내용:
 ---
-{{ $json["문의 내용"] }}
+{{ $json["문의내용"] }}
 ---
 
 위 문의를 분류해주세요.
@@ -138,8 +141,8 @@
 
 #### 3.4.1 AI 답변 생성
 
-**노드**: Google Gemini
-**모델**: `gemini-2.5-flash`
+**노드**: OpenAI (`resource: "text"`, `operation: "response"`)
+**모델**: `gpt-4o-mini`
 
 **시스템 프롬프트**:
 ```
@@ -159,7 +162,7 @@
 카테고리: {{ $json.category }}
 고객명: {{ $('Google Sheets Trigger').item.json["고객명"] }}
 문의 내용:
-{{ $('Google Sheets Trigger').item.json["문의 내용"] }}
+{{ $('Google Sheets Trigger').item.json["문의내용"] }}
 
 위 내용에 대한 답변 이메일 본문을 작성해주세요.
 ```
@@ -170,10 +173,12 @@
 
 | 파라미터 | 값 |
 |----------|------|
-| To | `{{ $('Google Sheets Trigger').item.json["이메일 주소"] }}` |
-| Subject | `[고객센터] {{ $('AI 분석').item.json.category }} 문의에 대한 답변` |
-| Body | `{{ $('AI 답변 생성').item.json.text }}` |
+| To | `{{ $('Parse Classification').item.json.customerEmail }}` |
+| Subject | `[고객센터] {{ $('Parse Classification').item.json.category }} 문의에 대한 답변` |
+| Body | `{{ $json.output[0].content[0].text }}` |
 | Email Type | HTML |
+
+> OpenAI Responses API 의 응답 본문은 `$json.output[0].content[0].text` 경로에 위치한다 (simplify 옵션과 무관).
 
 #### 3.4.3 로깅
 
@@ -191,9 +196,9 @@
 
 | 파라미터 | 값 |
 |----------|------|
-| To | `{{ $('Google Sheets Trigger').item.json["이메일 주소"] }}` |
-| Subject | `[검토 필요] {{ $('AI 분석').item.json.category }} - {{ $('Google Sheets Trigger').item.json["고객명"] }}` |
-| Body | `{{ $('AI 답변 초안').item.json.text }}` |
+| To | `{{ $('Parse Classification').item.json.customerEmail }}` |
+| Subject | `[검토 필요] {{ $('Parse Classification').item.json.category }} - {{ $('Parse Classification').item.json.customerName }}` |
+| Body | `{{ $json.output[0].content[0].text }}` |
 
 > 출력된 **draft ID / URL**을 다음 Slack 알림에 포함한다.
 
@@ -207,12 +212,12 @@
 :bell: *새 문의가 도착했습니다. 확인 후 발송해주세요.*
 
 • *고객명*: {{ $('Google Sheets Trigger').item.json["고객명"] }}
-• *이메일*: {{ $('Google Sheets Trigger').item.json["이메일 주소"] }}
+• *이메일*: {{ $('Google Sheets Trigger').item.json["이메일"] }}
 • *카테고리*: {{ $('AI 분석').item.json.category }}
 • *판단 근거*: {{ $('AI 분석').item.json.reason }}
 
 *문의 내용*
->>> {{ $('Google Sheets Trigger').item.json["문의 내용"] }}
+>>> {{ $('Google Sheets Trigger').item.json["문의내용"] }}
 
 *AI 답변 초안*
 ```
@@ -237,7 +242,7 @@
 
 | 컬럼명 | 출처 | 예시 |
 |--------|------|------|
-| `접수일시` | Trigger 타임스탬프 | `2026-04-21 10:32:15` |
+| `접수일시` | Trigger `접수일시` | `2026-04-21 10:32:15` |
 | `고객명` | Trigger | `홍길동` |
 | `이메일` | Trigger | `hong@example.com` |
 | `문의내용` | Trigger | `주문한 제품이 ...` |
@@ -257,10 +262,13 @@
 
 | 대상 노드 | 재시도 횟수 | 재시도 간격 |
 |-----------|-------------|-------------|
-| AI 분석 (Gemini) | **3회** | 지수 백오프 (예: 2s → 4s → 8s) |
-| AI 답변 생성 (Gemini) | **3회** | 동일 |
+| AI 분석 (OpenAI) | **3회** | 5초 |
+| AI 답변 생성 (OpenAI) | **3회** | 5초 |
+| AI 답변 초안 (OpenAI) | **3회** | 5초 |
 
-n8n 노드 설정 → `Settings` → `Retry On Fail: true`, `Max Tries: 3`
+n8n 노드 설정 → `Settings` → `Retry On Fail: true`, `Max Tries: 3`, `Wait Between Tries: 5000ms`
+
+> 간격을 5초로 둔 이유: 외부 LLM API 의 일시적 503/429 가 보통 몇 초 내 회복됨. 2초는 너무 공격적이고 10초 이상은 전체 응답 시간 악화. 429(rate limit) 상황에서 retry 횟수 ↑ 는 오히려 쿼터를 더 소모하므로 3회 유지.
 
 ### 5.2 재시도 실패 시 알림
 
@@ -268,18 +276,23 @@ n8n 노드 설정 → `Settings` → `Retry On Fail: true`, `Max Tries: 3`
 
 **채널**: `#error-alert`
 
-**메시지 템플릿**:
+**메시지 템플릿** (실제 운영 기준 — `$json.error` 는 문자열이므로 객체 접근 금지):
 ```
 :rotating_light: *고객 문의 워크플로우 실패*
 
-• *실패 노드*: {{ $json.error.node.name }}
-• *에러 메시지*: {{ $json.error.message }}
-• *고객명*: {{ $json.execution.input["고객명"] }}
-• *문의내용*: {{ $json.execution.input["문의 내용"] }}
-• *Execution URL*: {{ $execution.url }}
+• *에러 메시지*: {{ $json.error || ($json.error && $json.error.message) || $json.message || '내용 없음' }}
+• *고객명*: {{ $('On New Inquiry Row').item.json['고객명'] || $json.customerName || 'unknown' }}
+• *이메일*: {{ $('On New Inquiry Row').item.json['이메일'] || $json.customerEmail || 'unknown' }}
+• *문의내용*: {{ $('On New Inquiry Row').item.json['문의내용'] || $json.inquiry || 'unknown' }}
+• *카테고리*: {{ $json.category || 'N/A' }}
+• *복잡도*: {{ $json.complexity || 'N/A' }}
+• *실행 ID*: {{ $execution.id }}
+• *Execution URL*: {{ $execution.resumeUrl || $execution.url }}
 
 담당자 수동 확인이 필요합니다.
 ```
+
+> 초기 버전은 `$json.error.node.name` 같은 객체 접근을 가정했으나, 실제로는 `$json.error` 가 **에러 메시지 문자열** 이므로 fallback 체인을 두어야 한다.
 
 ### 5.3 담당자 대응 절차
 1. Slack `#error-alert` 알림 수신
@@ -295,9 +308,9 @@ n8n 노드 설정 → `Settings` → `Retry On Fail: true`, `Max Tries: 3`
 | 서비스 | 용도 | 필요 자격증명 |
 |--------|------|----------------|
 | Google Sheets | 입력 트리거, 로깅 | Google OAuth2 |
-| Google Gemini | 문의 분류, 답변 생성 | API Key (`gemini-2.5-flash`) |
+| **OpenAI** | 문의 분류, 답변 생성 | API Key (`gpt-4o-mini`, Responses API) |
 | Gmail | 이메일 발송 / 초안 생성 | Google OAuth2 |
-| Slack | 알림 (`#customer-support`, `#error-alert`) | Bot Token (`chat:write` 스코프) |
+| Slack | 알림 (`#customer-support`, `#error-alert`) | Bot Token (`chat:write` + `chat:write.public` + `channels:read`) |
 
 ---
 
@@ -305,15 +318,15 @@ n8n 노드 설정 → `Settings` → `Retry On Fail: true`, `Max Tries: 3`
 
 ### 7.1 배포 전
 - [ ] Google Sheets 시트 ID 및 시트명 치환 (`YOUR_SHEET_ID`, `고객문의_폼`, `고객문의_로그`)
-- [ ] Gemini API 키 등록 및 쿼터 확인
+- [ ] OpenAI API 키 등록 (`gpt-4o-mini` 호출 가능, Responses API 지원 필요)
 - [ ] Slack 봇이 `#customer-support`, `#error-alert` 채널에 초대되어 있는지 확인
 - [ ] Gmail 발신 계정 OAuth 범위에 `gmail.send`, `gmail.compose` 포함 확인
-- [ ] 테스트 문의로 **단순문의 / 확인필요** 두 케이스 각각 End-to-End 실행
-- [ ] 에러 처리 경로 테스트 (Gemini 키 일시 제거 후 `#error-alert` 수신 확인)
+- [ ] 테스트 문의로 **단순문의 / 확인필요** 두 케이스 각각 End-to-End 실행 (헬퍼: `./scripts/add-test.sh`)
+- [ ] 에러 처리 경로 테스트 (OpenAI 모델명 일시 `gpt-invalid-model` 변경 후 `#error-alert` 수신 확인)
 
 ### 7.2 운영 중 모니터링
 - **일 단위**: `고객문의_로그` 시트에서 자동발송 vs 수동확인 비율 확인
-- **주 단위**: Gemini 분류 품질 샘플링 검수 (잘못 분류된 케이스 수집 → 프롬프트 개선)
+- **주 단위**: OpenAI 분류 품질 샘플링 검수 (잘못 분류된 케이스 수집 → 프롬프트 개선), 토큰/비용 사용량 확인
 - **월 단위**: 실패 실행 수, 평균 응답 시간 리포트
 
 ### 7.3 변경 관리
@@ -328,3 +341,6 @@ n8n 노드 설정 → `Settings` → `Retry On Fail: true`, `Max Tries: 3`
 | 일자 | 버전 | 변경 내용 | 작성자 |
 |------|------|-----------|--------|
 | 2026-04-21 | v1.0 | 최초 작성 | - |
+| 2026-04-21 | v1.1 | 입력 컬럼명 통일 (`이메일 주소`/`문의 내용`/`타임스탬프` → `이메일`/`문의내용`/`접수일시`) | Ted |
+| 2026-04-21 | v1.2 | AI provider 교체: **Google Gemini → OpenAI gpt-4o-mini** (Responses API). Gemini 무료 등급 503/429 빈발로 전환. 응답 경로 `$json.mergedResponse` → `$json.output[0].content[0].text` | Ted |
+| 2026-04-21 | v1.3 | Retry 간격 2초 → 5초 상향. Alert Error Slack 메시지 표현식 현실화 (문자열 error 필드 대응). Parse Classification Code 다중 아이템 처리 (`$input.all()`) 지원 | Ted |
